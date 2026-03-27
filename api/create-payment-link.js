@@ -73,8 +73,8 @@ export default async function handler(req, res) {
             return res.status(response.status).json({ error: "Tochka API error", details: data })
         }
 
-        // Точка возвращает Data.paymentUrl
-        const paymentUrl = data?.Data?.paymentUrl
+        // Точка возвращает Data.paymentLink (не paymentUrl!)
+        const paymentUrl = data?.Data?.paymentLink
         if (!paymentUrl) {
             return res.status(500).json({ error: "No paymentUrl in response", raw: data })
         }
