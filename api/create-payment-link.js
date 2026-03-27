@@ -1,8 +1,8 @@
 // api/create-payment-link.js
-// Создаёт платёжную ссылку через Точка Банк и возвращает URL для редиректа
+// Создаёт платёжную ссылку через Точка Банк
 //
 // Переменные окружения в Vercel:
-//   TOCHKA_TOKEN         — JWT-токен из личного кабинета Точки
+//   TOCHKA_TOKEN         — JWT-токен
 //   TOCHKA_CUSTOMER_CODE — 305428357
 //   TOCHKA_MERCHANT_ID   — 200000000035707
 //
@@ -35,55 +35,47 @@ export default async function handler(req, res) {
     const amount = quantity * unitPrice
     const orderId = `order-${Date.now()}`
 
+    // ⚠️ Тело запроса должно быть обёрнуто в { "Data": { ... } }
     const payload = {
-        customerCode: CUSTOMER_CODE,
-        merchantId: MERCHANT_ID,
-        amount: amount,
-        purpose: `стикеры яковлева — ${quantity} шт.`,
-        paymentMode: ["card", "sbp"],
-        redirectUrl: SUCCESS_URL,
-        failRedirectUrl: FAIL_URL,
-        paymentLinkId: orderId,
-        ttl: 60,
-        Client: {
-            name: customerName,
-            phone: customerPhone,
-        },
-        Items: [
-            {
-                name: "стикеры яковлева",
-                amount: unitPrice,
-                quantity: quantity,
-                paymentMethod: "full_payment",
-                paymentObject: "goods",
-                vatType: "none",
-            },
-        ],
+        Data: {
+            customerCode: CUSTOMER_CODE,
+            merchantId: MERCHANT_ID,
+            amount: String(amount) + ".00",   // Точка ожидает строку вида "1301.00"
+            purpose: `стикеры яковлева — ${quantity} шт.`,
+            paymentMode: ["card", "sbp"],
+            redirectUrl: SUCCESS_URL,
+            failRedirectUrl: FAIL_URL,
+            paymentLinkId: orderId,
+            ttl: 60,
+        }
     }
+
+    console.log("Sending to Tochka:", JSON.stringify(payload))
 
     try {
         const response = await fetch(
-            `${TOCHKA_API}/acquiring/v1.0/payments/with-receipt`,
+            `${TOCHKA_API}/acquiring/v1.0/payments`,
             {
                 method: "POST",
                 headers: {
                     "Authorization": `Bearer ${TOKEN}`,
                     "Content-Type": "application/json",
+                    "Accept": "application/json",
                 },
                 body: JSON.stringify(payload),
             }
         )
 
         const data = await response.json()
+        console.log("Tochka response:", response.status, JSON.stringify(data))
 
         if (!response.ok) {
-            console.error("Точка API error:", JSON.stringify(data))
             return res.status(response.status).json({ error: "Tochka API error", details: data })
         }
 
+        // Точка возвращает Data.paymentUrl
         const paymentUrl = data?.Data?.paymentUrl
         if (!paymentUrl) {
-            console.error("No paymentUrl in response:", JSON.stringify(data))
             return res.status(500).json({ error: "No paymentUrl in response", raw: data })
         }
 
