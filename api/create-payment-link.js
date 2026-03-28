@@ -12,7 +12,6 @@
 
 const TOCHKA_API = "https://enter.tochka.com/uapi"
 const SUCCESS_URL = "https://yakovleva-shop.ru/succes-pay"
-const FAIL_URL = ""
 
 export default async function handler(req, res) {
     res.setHeader("Access-Control-Allow-Origin", "*")
@@ -44,7 +43,6 @@ export default async function handler(req, res) {
             purpose: `стикеры яковлева — ${quantity} шт.`,
             paymentMode: ["card", "sbp"],
             redirectUrl: SUCCESS_URL,
-            failRedirectUrl: FAIL_URL,
             paymentLinkId: orderId,
             ttl: 60,
         }
