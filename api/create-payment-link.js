@@ -12,7 +12,7 @@
 
 const TOCHKA_API = "https://enter.tochka.com/uapi"
 const SUCCESS_URL = "https://yakovleva-shop.ru/succes-pay"
-const FAIL_URL = "https://yakovleva-shop.ru/failure"
+const FAIL_URL = ""
 
 export default async function handler(req, res) {
     res.setHeader("Access-Control-Allow-Origin", "*")
