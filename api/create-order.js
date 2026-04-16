@@ -46,6 +46,10 @@ export default async function handler(req, res) {
             },
         ],
         last_mile_policy: "time_interval",
+        billing_info: {
+            payment_method: "already_paid",
+            delivery_cost: 0,
+        },
     }
 
     try {
