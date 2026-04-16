@@ -52,10 +52,10 @@ export default async function handler(req, res) {
             {
                 barcode: "PLACE-001",
                 physical_dims: {
-                    weight_gross: 10000, // вес в граммах
-                    dx: 10,
-                    dy: 10,
-                    dz: 10,
+                    weight_gross: 60 * Number(quantity), // 60г на 1 стикерпак
+                    dx: 15,  // длина А6 см
+                    dy: 10,  // ширина А6 см
+                    dz: 1,   // толщина упаковки см
                 },
             },
         ],
