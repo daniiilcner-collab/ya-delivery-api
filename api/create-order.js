@@ -22,7 +22,7 @@ export default async function handler(req, res) {
         },
         source: {
             platform_station: {
-                platform_id: "05e809bb-4521-42d9-a936-0fb0744c0fb3", // наш склад
+                platform_id: "019d88a8fe007763a71caf9d7ec05c0e", // самопривоз: Северск, Курчатова 36Б
             },
         },
         destination: {
