@@ -42,6 +42,7 @@ export default async function handler(req, res) {
                     unit_price: Number(process.env.UNIT_PRICE || 1301) * 100,           // в копейках
                     assessed_unit_price: Number(process.env.UNIT_PRICE || 1301) * 100,  // в копейках
                 },
+                place_barcode: "PLACE-001",
                 physical_dims: {
                     predefined_volume: 500, // объём в см3
                 },
