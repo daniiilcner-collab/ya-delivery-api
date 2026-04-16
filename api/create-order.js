@@ -9,13 +9,12 @@ export default async function handler(req, res) {
     const { destinationId, customerName, customerPhone, quantity } = req.body
 
     const token = process.env.YA_DELIVERY_TOKEN
+    const clientId = process.env.YA_CLIENT_ID
 
-    // 🔍 Диагностика — первые и последние 6 символов токена
     console.log("TOKEN first 6:", token ? token.substring(0, 6) : "EMPTY")
-    console.log("TOKEN last 6:", token ? token.substring(token.length - 6) : "EMPTY")
-    console.log("TOKEN length:", token ? token.length : 0)
-    console.log("CLIENT_ID:", process.env.YA_CLIENT_ID)
     console.log("destinationId:", destinationId)
+    console.log("customerName:", customerName)
+    console.log("quantity:", quantity)
 
     const body = {
         info: {
@@ -23,34 +22,54 @@ export default async function handler(req, res) {
         },
         source: {
             platform_station: {
-                platform_station_id: "05e809bb-4521-42d9-a936-0fb0744c0fb3",
+                platform_id: "05e809bb-4521-42d9-a936-0fb0744c0fb3", // наш склад
             },
         },
         destination: {
+            type: "platform_station", // доставка до ПВЗ
             platform_station: {
-                platform_station_id: destinationId,
+                platform_id: destinationId, // ПВЗ выбранный покупателем
             },
         },
-        cargo_parcels: [
+        items: [
             {
+                count: Number(quantity),
+                name: "стикеры яковлева",
+                article: "STICKER-001",
+                billing_details: {
+                    inn: process.env.SELLER_INN || "000000000000",
+                    nds: -1,           // без НДС
+                    unit_price: Number(process.env.UNIT_PRICE || 1301) * 100,           // в копейках
+                    assessed_unit_price: Number(process.env.UNIT_PRICE || 1301) * 100,  // в копейках
+                },
                 physical_dims: {
-                    weight_gross: 10000,
+                    predefined_volume: 500, // объём в см3
                 },
             },
         ],
-        recipients: [
+        places: [
             {
-                name: customerName,
-                phone: customerPhone,
-                email: "",
+                physical_dims: {
+                    weight_gross: 10000, // вес в граммах
+                    dx: 10,
+                    dy: 10,
+                    dz: 10,
+                },
             },
         ],
-        last_mile_policy: "time_interval",
         billing_info: {
-            payment_method: "already_paid",
+            payment_method: "already_paid", // предоплата
             delivery_cost: 0,
         },
+        recipient_info: {
+            first_name: customerName,
+            phone: customerPhone,
+            email: "",
+        },
+        last_mile_policy: "self_pickup", // доставка до ПВЗ (не до двери!)
     }
+
+    console.log("Sending to YA:", JSON.stringify(body))
 
     try {
         const response = await fetch(
@@ -59,8 +78,8 @@ export default async function handler(req, res) {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`,
-                    "X-Client-ID": process.env.YA_CLIENT_ID,
+                    "Authorization": `Bearer ${token}`,
+                    "X-Client-ID": clientId,
                 },
                 body: JSON.stringify(body),
             }
