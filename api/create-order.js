@@ -50,6 +50,7 @@ export default async function handler(req, res) {
         ],
         places: [
             {
+                barcode: "PLACE-001",
                 physical_dims: {
                     weight_gross: 10000, // вес в граммах
                     dx: 10,
