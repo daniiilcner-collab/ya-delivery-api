@@ -36,7 +36,7 @@ export default async function handler(req, res) {
     if (req.method === "OPTIONS") return res.status(200).end()
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" })
 
-    const { destinationId, customerName, customerPhone, quantity } = req.body
+    const { destinationId, deliveryAddress, customerName, customerPhone, quantity } = req.body
 
     const token = process.env.YA_DELIVERY_TOKEN
     const clientId = process.env.YA_CLIENT_ID
@@ -122,7 +122,7 @@ export default async function handler(req, res) {
 👤 ${customerName}
 📞 ${customerPhone}
 📦 ${quantity} шт × ${unitPrice} = ${totalPrice} руб
-📍 ID ПВЗ: ${destinationId}
+📍 ПВЗ: ${deliveryAddress || destinationId}
 
 ⚠️ <b>ошибка яндекс доставки — нужна ручная обработка!</b>
 ❗ причина: ${offersData?.message || JSON.stringify(offersData)}`
@@ -138,7 +138,7 @@ export default async function handler(req, res) {
 👤 ${customerName}
 📞 ${customerPhone}
 📦 ${quantity} шт × ${unitPrice} = ${totalPrice} руб
-📍 ID ПВЗ: ${destinationId}
+📍 ПВЗ: ${deliveryAddress || destinationId}
 
 ⚠️ <b>яндекс не вернул офферы — нужна ручная обработка!</b>`
             )
@@ -162,7 +162,7 @@ export default async function handler(req, res) {
 👤 ${customerName}
 📞 ${customerPhone}
 📦 ${quantity} шт × ${unitPrice} = ${totalPrice} руб
-📍 ID ПВЗ: ${destinationId}
+📍 ПВЗ: ${deliveryAddress || destinationId}
 
 ⚠️ <b>ошибка подтверждения яндекс доставки — нужна ручная обработка!</b>
 ❗ причина: ${confirmData?.message || JSON.stringify(confirmData)}
@@ -172,8 +172,13 @@ export default async function handler(req, res) {
         }
 
         // ШАГ 3 — всё прошло, отправляем уведомление об успехе
-        const deliveryDate = firstOffer.offer_details?.delivery_interval?.min?.substring(0, 10) || "—"
-        const pickupDeadline = firstOffer.offer_details?.pickup_interval?.max?.substring(0, 10) || "—"
+        const formatDate = (iso) => {
+            if (!iso) return "—"
+            const [y, m, d] = iso.substring(0, 10).split("-")
+            return `${d}-${m}-${y}`
+        }
+        const deliveryDate = formatDate(firstOffer.offer_details?.delivery_interval?.min)
+        const pickupDeadline = formatDate(firstOffer.offer_details?.pickup_interval?.max)
 
         await sendTelegram(
 `🛍 <b>новый заказ!</b>
@@ -181,7 +186,7 @@ export default async function handler(req, res) {
 👤 ${customerName}
 📞 ${customerPhone}
 📦 ${quantity} шт × ${unitPrice} = ${totalPrice} руб
-📍 ID ПВЗ: ${destinationId}
+📍 ПВЗ: ${deliveryAddress || destinationId}
 
 ✅ <b>яндекс доставка: заказ создан</b>
 🆔 заказ ЯД: ${confirmData.request_id}
@@ -209,7 +214,7 @@ export default async function handler(req, res) {
 👤 ${customerName}
 📞 ${customerPhone}
 📦 ${quantity} шт × ${unitPrice} = ${totalPrice} руб
-📍 ID ПВЗ: ${destinationId}
+📍 ПВЗ: ${deliveryAddress || destinationId}
 
 🔴 <b>критическая ошибка — нужна ручная обработка!</b>
 ❗ ${err.message}`
