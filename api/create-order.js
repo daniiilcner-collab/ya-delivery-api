@@ -1,3 +1,10 @@
+// api/create-order.js
+// Создаёт заказ в Яндекс Доставке (самопривоз → ПВЗ)
+// 2 шага: 1) получаем офферы 2) подтверждаем первый
+
+const YA_API = "https://b2b-authproxy.taxi.yandex.net"
+const SOURCE_STATION_ID = "019d88a8fe007763a71caf9d7ec05c0e" // ПВЗ самопривоза: Северск, Курчатова 36Б
+
 export default async function handler(req, res) {
     res.setHeader("Access-Control-Allow-Origin", "*")
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS")
@@ -11,10 +18,11 @@ export default async function handler(req, res) {
     const token = process.env.YA_DELIVERY_TOKEN
     const clientId = process.env.YA_CLIENT_ID
 
-    console.log("TOKEN first 6:", token ? token.substring(0, 6) : "EMPTY")
-    console.log("destinationId:", destinationId)
-    console.log("customerName:", customerName)
-    console.log("quantity:", quantity)
+    const headers = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+        "X-Client-ID": clientId,
+    }
 
     const body = {
         info: {
@@ -22,13 +30,13 @@ export default async function handler(req, res) {
         },
         source: {
             platform_station: {
-                platform_id: "019d88a8fe007763a71caf9d7ec05c0e", // самопривоз: Северск, Курчатова 36Б
+                platform_id: SOURCE_STATION_ID,
             },
         },
         destination: {
-            type: "platform_station", // доставка до ПВЗ
+            type: "platform_station",
             platform_station: {
-                platform_id: destinationId, // ПВЗ выбранный покупателем
+                platform_id: destinationId,
             },
         },
         items: [
@@ -38,13 +46,13 @@ export default async function handler(req, res) {
                 article: "STICKER-001",
                 billing_details: {
                     inn: process.env.SELLER_INN || "000000000000",
-                    nds: -1,           // без НДС
-                    unit_price: Number(process.env.UNIT_PRICE || 1301) * 100,           // в копейках
-                    assessed_unit_price: Number(process.env.UNIT_PRICE || 1301) * 100,  // в копейках
+                    nds: -1,
+                    unit_price: Number(process.env.UNIT_PRICE || 1301) * 100,
+                    assessed_unit_price: Number(process.env.UNIT_PRICE || 1301) * 100,
                 },
                 place_barcode: "PLACE-001",
                 physical_dims: {
-                    predefined_volume: 500, // объём в см3
+                    predefined_volume: 500,
                 },
             },
         ],
@@ -52,15 +60,15 @@ export default async function handler(req, res) {
             {
                 barcode: "PLACE-001",
                 physical_dims: {
-                    weight_gross: 60 * Number(quantity), // 60г на 1 стикерпак
-                    dx: 15,  // длина А6 см
-                    dy: 10,  // ширина А6 см
-                    dz: 1,   // толщина упаковки см
+                    weight_gross: 60 * Number(quantity),
+                    dx: 15,
+                    dy: 10,
+                    dz: 1,
                 },
             },
         ],
         billing_info: {
-            payment_method: "already_paid", // предоплата
+            payment_method: "already_paid",
             delivery_cost: 0,
         },
         recipient_info: {
@@ -68,34 +76,67 @@ export default async function handler(req, res) {
             phone: customerPhone,
             email: "",
         },
-        last_mile_policy: "self_pickup", // доставка до ПВЗ (не до двери!)
+        last_mile_policy: "self_pickup",
     }
 
-    console.log("Sending to YA:", JSON.stringify(body))
-
     try {
-        const response = await fetch(
-            "https://b2b-authproxy.taxi.yandex.net/api/b2b/platform/offers/create",
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`,
-                    "X-Client-ID": clientId,
-                },
-                body: JSON.stringify(body),
-            }
-        )
+        // ШАГ 1 — получаем офферы
+        const offersRes = await fetch(`${YA_API}/api/b2b/platform/offers/create`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
+        })
 
-        const data = await response.json()
-        console.log("YA response status:", response.status)
-        console.log("YA response:", JSON.stringify(data))
+        const offersData = await offersRes.json()
+        console.log("Offers status:", offersRes.status)
 
-        if (!response.ok) {
-            return res.status(response.status).json({ error: data })
+        if (!offersRes.ok) {
+            return res.status(offersRes.status).json({
+                error: "offers_create_failed",
+                details: offersData,
+            })
         }
 
-        return res.status(200).json({ success: true, data })
+        const firstOffer = offersData?.offers?.[0]
+        if (!firstOffer) {
+            return res.status(500).json({
+                error: "no_offers_returned",
+                details: offersData,
+            })
+        }
+
+        console.log("First offer:", firstOffer.offer_id, firstOffer.offer_details?.pricing)
+
+        // ШАГ 2 — подтверждаем первый оффер
+        const confirmRes = await fetch(`${YA_API}/api/b2b/platform/offers/confirm`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ offer_id: firstOffer.offer_id }),
+        })
+
+        const confirmData = await confirmRes.json()
+        console.log("Confirm status:", confirmRes.status)
+        console.log("Confirm data:", JSON.stringify(confirmData))
+
+        if (!confirmRes.ok) {
+            return res.status(confirmRes.status).json({
+                error: "offer_confirm_failed",
+                details: confirmData,
+                offer_id: firstOffer.offer_id,
+            })
+        }
+
+        // Успех — заказ создан
+        return res.status(200).json({
+            success: true,
+            request_id: confirmData.request_id,
+            offer: {
+                offer_id: firstOffer.offer_id,
+                pricing: firstOffer.offer_details?.pricing,
+                delivery_interval: firstOffer.offer_details?.delivery_interval,
+                pickup_interval: firstOffer.offer_details?.pickup_interval,
+            },
+        })
 
     } catch (err) {
         console.error("Fetch error:", err)
