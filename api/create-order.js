@@ -1,9 +1,32 @@
 // api/create-order.js
-// Создаёт заказ в Яндекс Доставке (самопривоз → ПВЗ)
-// 2 шага: 1) получаем офферы 2) подтверждаем первый
+// Создаёт заказ в Яндекс Доставке + уведомление в Telegram
+// Шаг 1: получаем офферы → Шаг 2: подтверждаем первый → Шаг 3: Telegram
 
 const YA_API = "https://b2b-authproxy.taxi.yandex.net"
-const SOURCE_STATION_ID = "019d88a8fe007763a71caf9d7ec05c0e" // ПВЗ самопривоза: Северск, Курчатова 36Б
+const SOURCE_STATION_ID = "019d88a8fe007763a71caf9d7ec05c0e" // самопривоз: Северск, Курчатова 36Б
+
+// Отправка уведомления в Telegram
+async function sendTelegram(message) {
+    const token = process.env.TELEGRAM_BOT_TOKEN
+    const chatId = process.env.TELEGRAM_CHAT_ID
+    if (!token || !chatId) {
+        console.error("Telegram env не настроен")
+        return
+    }
+    try {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                chat_id: chatId,
+                text: message,
+                parse_mode: "HTML",
+            }),
+        })
+    } catch (err) {
+        console.error("Telegram ошибка:", err)
+    }
+}
 
 export default async function handler(req, res) {
     res.setHeader("Access-Control-Allow-Origin", "*")
@@ -17,6 +40,8 @@ export default async function handler(req, res) {
 
     const token = process.env.YA_DELIVERY_TOKEN
     const clientId = process.env.YA_CLIENT_ID
+    const unitPrice = Number(process.env.UNIT_PRICE || 1301)
+    const totalPrice = unitPrice * Number(quantity)
 
     const headers = {
         "Content-Type": "application/json",
@@ -47,8 +72,8 @@ export default async function handler(req, res) {
                 billing_details: {
                     inn: process.env.SELLER_INN || "000000000000",
                     nds: -1,
-                    unit_price: Number(process.env.UNIT_PRICE || 1301) * 100,
-                    assessed_unit_price: Number(process.env.UNIT_PRICE || 1301) * 100,
+                    unit_price: unitPrice * 100,
+                    assessed_unit_price: unitPrice * 100,
                 },
                 place_barcode: "PLACE-001",
                 physical_dims: {
@@ -88,24 +113,37 @@ export default async function handler(req, res) {
         })
 
         const offersData = await offersRes.json()
-        console.log("Offers status:", offersRes.status)
 
         if (!offersRes.ok) {
-            return res.status(offersRes.status).json({
-                error: "offers_create_failed",
-                details: offersData,
-            })
+            // ЯД вернул ошибку на первом шаге
+            await sendTelegram(
+`🛍 <b>новый заказ!</b>
+
+👤 ${customerName}
+📞 ${customerPhone}
+📦 ${quantity} шт × ${unitPrice} = ${totalPrice} руб
+📍 ID ПВЗ: ${destinationId}
+
+⚠️ <b>ошибка яндекс доставки — нужна ручная обработка!</b>
+❗ причина: ${offersData?.message || JSON.stringify(offersData)}`
+            )
+            return res.status(offersRes.status).json({ error: "offers_create_failed", details: offersData })
         }
 
         const firstOffer = offersData?.offers?.[0]
         if (!firstOffer) {
-            return res.status(500).json({
-                error: "no_offers_returned",
-                details: offersData,
-            })
-        }
+            await sendTelegram(
+`🛍 <b>новый заказ!</b>
 
-        console.log("First offer:", firstOffer.offer_id, firstOffer.offer_details?.pricing)
+👤 ${customerName}
+📞 ${customerPhone}
+📦 ${quantity} шт × ${unitPrice} = ${totalPrice} руб
+📍 ID ПВЗ: ${destinationId}
+
+⚠️ <b>яндекс не вернул офферы — нужна ручная обработка!</b>`
+            )
+            return res.status(500).json({ error: "no_offers_returned" })
+        }
 
         // ШАГ 2 — подтверждаем первый оффер
         const confirmRes = await fetch(`${YA_API}/api/b2b/platform/offers/confirm`, {
@@ -115,18 +153,43 @@ export default async function handler(req, res) {
         })
 
         const confirmData = await confirmRes.json()
-        console.log("Confirm status:", confirmRes.status)
-        console.log("Confirm data:", JSON.stringify(confirmData))
 
         if (!confirmRes.ok) {
-            return res.status(confirmRes.status).json({
-                error: "offer_confirm_failed",
-                details: confirmData,
-                offer_id: firstOffer.offer_id,
-            })
+            // Офферы получили, но подтверждение упало
+            await sendTelegram(
+`🛍 <b>новый заказ!</b>
+
+👤 ${customerName}
+📞 ${customerPhone}
+📦 ${quantity} шт × ${unitPrice} = ${totalPrice} руб
+📍 ID ПВЗ: ${destinationId}
+
+⚠️ <b>ошибка подтверждения яндекс доставки — нужна ручная обработка!</b>
+❗ причина: ${confirmData?.message || JSON.stringify(confirmData)}
+🔑 offer_id: ${firstOffer.offer_id}`
+            )
+            return res.status(confirmRes.status).json({ error: "offer_confirm_failed", details: confirmData })
         }
 
-        // Успех — заказ создан
+        // ШАГ 3 — всё прошло, отправляем уведомление об успехе
+        const deliveryDate = firstOffer.offer_details?.delivery_interval?.min?.substring(0, 10) || "—"
+        const pickupDeadline = firstOffer.offer_details?.pickup_interval?.max?.substring(0, 10) || "—"
+
+        await sendTelegram(
+`🛍 <b>новый заказ!</b>
+
+👤 ${customerName}
+📞 ${customerPhone}
+📦 ${quantity} шт × ${unitPrice} = ${totalPrice} руб
+📍 ID ПВЗ: ${destinationId}
+
+✅ <b>яндекс доставка: заказ создан</b>
+🆔 заказ ЯД: ${confirmData.request_id}
+💰 стоимость доставки: ${firstOffer.offer_details?.pricing}
+📅 дата доставки покупателю: ${deliveryDate}
+🚚 привезти в ПВЗ самопривоза до: ${pickupDeadline}`
+        )
+
         return res.status(200).json({
             success: true,
             request_id: confirmData.request_id,
@@ -139,6 +202,18 @@ export default async function handler(req, res) {
         })
 
     } catch (err) {
+        // Сеть или непредвиденная ошибка
+        await sendTelegram(
+`🛍 <b>новый заказ!</b>
+
+👤 ${customerName}
+📞 ${customerPhone}
+📦 ${quantity} шт × ${unitPrice} = ${totalPrice} руб
+📍 ID ПВЗ: ${destinationId}
+
+🔴 <b>критическая ошибка — нужна ручная обработка!</b>
+❗ ${err.message}`
+        )
         console.error("Fetch error:", err)
         return res.status(500).json({ error: err.message })
     }
